@@ -23,6 +23,9 @@
 /* USER CODE BEGIN Includes */
 #include <string.h>
 #include <stdio.h>
+
+#include "sht40.h"
+#include "bmp280.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -51,7 +54,10 @@ DMA_HandleTypeDef hdma_lpuart1_tx;
 RTC_HandleTypeDef hrtc;
 
 /* USER CODE BEGIN PV */
+SHT40_t sensor;
 
+BMP280_t bmp_sensor;
+char msg[100];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -69,6 +75,79 @@ static void MX_RTC_Init(void);
 /* USER CODE BEGIN 0 */
 void UART_print(char *message){
   HAL_UART_Transmit(&hlpuart1, (uint8_t*)message, strlen(message), HAL_MAX_DELAY);
+}
+
+void SHT40_InitAndTest(SHT40_t *sensor_ptr) {
+    char local_msg[64];
+    HAL_StatusTypeDef init_status = SHT40_Init(sensor_ptr, &hi2c1);
+    
+    if (init_status == HAL_OK) {
+        UART_print("SHT40: Init OK\r\n");
+        if (SHT40_GetSerialNumber(sensor_ptr) == HAL_OK) {
+            sprintf(local_msg, "SHT40 ID: %08lX\r\n", sensor_ptr->serial_number);
+            UART_print(local_msg);
+        } else {
+            UART_print("SHT40: NACK\r\n");
+        }
+    } else {
+        sprintf(local_msg, "SHT40: Init error! Error code: %d\r\n", init_status);
+        UART_print(local_msg);
+    }
+}
+
+void SHT40_ReadAndPrint(SHT40_t *sensor_ptr) {
+    char local_msg[64];
+
+    if (SHT40_Read_Data(sensor_ptr) == HAL_OK) {
+        int32_t temp_int = (int32_t)sensor_ptr->temperature;
+        uint32_t temp_frac = (uint32_t)((sensor_ptr->temperature - (float)temp_int) * 100);
+
+        int32_t hum_int = (int32_t)sensor_ptr->humidity;
+        uint32_t hum_frac = (uint32_t)((sensor_ptr->humidity - (float)hum_int) * 100);
+
+        sprintf(local_msg, "Temp: %ld.%02lu C, Hum: %ld.%02lu %%\r\n", 
+                temp_int, temp_frac, hum_int, hum_frac);
+        UART_print(local_msg);
+    } else {
+        UART_print("SHT40: Read error\r\n");
+    }
+}
+
+/* Helper function to initialize and verify BMP280 sensor connection */
+void BMP280_InitAndTest(BMP280_t *sensor_ptr) {
+    char local_msg[64];
+    /* Attempt to initialize the sensor and read calibration data */
+    HAL_StatusTypeDef init_status = BMP280_Init(sensor_ptr, &hi2c1);
+    
+    if (init_status == HAL_OK) {
+        UART_print("BMP280: Initialization successful\r\n");
+    } else {
+        /* Print error code if initialization fails or ID is incorrect */
+        sprintf(local_msg, "BMP280: Init failed! Error: %d\r\n", init_status);
+        UART_print(local_msg);
+    }
+}
+
+/* Helper function to trigger measurement, process data, and send results via UART */
+void BMP280_ReadAndPrint(BMP280_t *sensor_ptr) {
+    char local_msg[128];
+    /* Trigger forced mode measurement and perform compensation */
+    if (BMP280_Read_All(sensor_ptr) == HAL_OK) {
+        /* Extract integer and fractional parts for pressure (hPa) */
+        int32_t press_int = (int32_t)sensor_ptr->pressure;
+        uint32_t press_frac = (uint32_t)((sensor_ptr->pressure - (float)press_int) * 100);
+
+        /* Extract integer and fractional parts for temperature (Celsius) */
+        int32_t temp_int = (int32_t)sensor_ptr->temperature;
+        uint32_t temp_frac = (uint32_t)((sensor_ptr->temperature - (float)temp_int) * 100);
+
+        /* Format the output string with 2 decimal places precision */
+        sprintf(local_msg, "Press: %ld.%02lu hPa, Temp: %ld.%02lu C\r\n", 
+                press_int, press_frac, temp_int, temp_frac);
+        UART_print(local_msg);
+    } else {
+        UART_print("BMP280: Data read error!\r\n");
+    }
 }
 /* USER CODE END 0 */
 
@@ -105,27 +184,38 @@ int main(void)
   MX_I2C1_Init();
   MX_LPUART1_UART_Init();
   MX_RTC_Init();
+
   /* USER CODE BEGIN 2 */
   HAL_DBGMCU_EnableDBGStopMode();
   HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
-  HAL_Delay(5000);
-  UART_print("SYS START\r\n");
+  HAL_Delay(2000);
+  UART_print("SYS START.\r\n");
 
-  uint32_t wakeup_time = 10240-1;
+  uint32_t wakeup_time = 61440-1; // Sleep timer - defines how long does MC sleep
+  
+  SHT40_InitAndTest(&sensor);
+
+  BMP280_InitAndTest(&bmp_sensor);
+
+  UART_print("-----------------------------\r\n");
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    UART_print("Ping!\r\n");
+    SHT40_ReadAndPrint(&sensor);
+    BMP280_ReadAndPrint(&bmp_sensor);
+    UART_print("-----------------------------\r\n");
 
+    // Sleep section =================================
     if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, wakeup_time, RTC_WAKEUPCLOCK_RTCCLK_DIV16, 0) != HAL_OK){
         Error_Handler();
     }
-
+    HAL_Delay(10);
     HAL_SuspendTick();
     
+    // TODO: change in the hardware version
     /* In the system version change to stop mode 2 - sleep mode is easier to debug */
     HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI); 
     
