@@ -55,10 +55,7 @@
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
-extern DMA_HandleTypeDef hdma_i2c1_rx;
-extern DMA_HandleTypeDef hdma_lpuart1_tx;
-extern UART_HandleTypeDef hlpuart1;
-extern RTC_HandleTypeDef hrtc;
+
 /* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
@@ -142,62 +139,6 @@ void SysTick_Handler(void)
 /* For the available peripheral interrupt handler names,                      */
 /* please refer to the startup file (startup_stm32u0xx.s).                    */
 /******************************************************************************/
-
-/**
-  * @brief This function handles RTC and TAMP interrupts (combined EXTI lines 20 & 21).
-  */
-void RTC_TAMP_IRQHandler(void)
-{
-  /* USER CODE BEGIN RTC_TAMP_IRQn 0 */
-
-  /* USER CODE END RTC_TAMP_IRQn 0 */
-  HAL_RTCEx_WakeUpTimerIRQHandler(&hrtc);
-  /* USER CODE BEGIN RTC_TAMP_IRQn 1 */
-
-  /* USER CODE END RTC_TAMP_IRQn 1 */
-}
-
-/**
-  * @brief This function handles DMA1 channel 1 interrupt.
-  */
-void DMA1_Channel1_IRQHandler(void)
-{
-  /* USER CODE BEGIN DMA1_Channel1_IRQn 0 */
-
-  /* USER CODE END DMA1_Channel1_IRQn 0 */
-  HAL_DMA_IRQHandler(&hdma_i2c1_rx);
-  /* USER CODE BEGIN DMA1_Channel1_IRQn 1 */
-
-  /* USER CODE END DMA1_Channel1_IRQn 1 */
-}
-
-/**
-  * @brief This function handles DMA1 channel 2 and channel 3 interrupts.
-  */
-void DMA1_Channel2_3_IRQHandler(void)
-{
-  /* USER CODE BEGIN DMA1_Channel2_3_IRQn 0 */
-
-  /* USER CODE END DMA1_Channel2_3_IRQn 0 */
-  HAL_DMA_IRQHandler(&hdma_lpuart1_tx);
-  /* USER CODE BEGIN DMA1_Channel2_3_IRQn 1 */
-
-  /* USER CODE END DMA1_Channel2_3_IRQn 1 */
-}
-
-/**
-  * @brief This function handles USART3 (combined with EXTI 24) + LPUART1 global interrupt (combined with EXTI lines 28).
-  */
-void USART3_LPUART1_IRQHandler(void)
-{
-  /* USER CODE BEGIN USART3_LPUART1_IRQn 0 */
-
-  /* USER CODE END USART3_LPUART1_IRQn 0 */
-  HAL_UART_IRQHandler(&hlpuart1);
-  /* USER CODE BEGIN USART3_LPUART1_IRQn 1 */
-
-  /* USER CODE END USART3_LPUART1_IRQn 1 */
-}
 
 /* USER CODE BEGIN 1 */
 

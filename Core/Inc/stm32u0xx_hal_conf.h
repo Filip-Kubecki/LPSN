@@ -35,7 +35,7 @@
   */
 
 #define HAL_MODULE_ENABLED
-/* #define HAL_ADC_MODULE_ENABLED   */
+#define HAL_ADC_MODULE_ENABLED
 /* #define HAL_COMP_MODULE_ENABLED   */
 /* #define HAL_CRC_MODULE_ENABLED   */
 /* #define HAL_CRS_MODULE_ENABLED   */
@@ -48,8 +48,8 @@
 /* #define HAL_LPTIM_MODULE_ENABLED   */
 /* #define HAL_OPAMP_MODULE_ENABLED   */
 /* #define HAL_PCD_MODULE_ENABLED   */
-/* #define HAL_RNG_MODULE_ENABLED   */
-#define HAL_RTC_MODULE_ENABLED
+#define HAL_RNG_MODULE_ENABLED
+/* #define HAL_RTC_MODULE_ENABLED   */
 /* #define HAL_SPI_MODULE_ENABLED   */
 /* #define HAL_SMARTCARD_MODULE_ENABLED   */
 /* #define HAL_TIM_MODULE_ENABLED   */
