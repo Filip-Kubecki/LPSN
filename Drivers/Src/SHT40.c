@@ -1,12 +1,6 @@
 #include "SHT40.h"
 
 /**
- * ====================================================================
- * PUBLIC FUNCTIONS
- * ====================================================================
- */
-
-/**
  * @brief Initializes the SHT40 sensor structure and performs a soft reset.
  * Resets internal variables and sends the hardware reset command over I2C.
  */

@@ -53,6 +53,8 @@ set(STM32_Drivers_Src
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32U0xx_HAL_Driver/Src/stm32u0xx_hal_rng.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32U0xx_HAL_Driver/Src/stm32u0xx_hal_rng_ex.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32U0xx_HAL_Driver/Src/stm32u0xx_ll_rng.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32U0xx_HAL_Driver/Src/stm32u0xx_hal_rtc.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Drivers/STM32U0xx_HAL_Driver/Src/stm32u0xx_hal_rtc_ex.c
 )
 
 # Drivers Midllewares

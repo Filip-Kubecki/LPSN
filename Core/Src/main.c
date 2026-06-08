@@ -10,6 +10,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "e104.h"
+#include "SHT40.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -29,17 +30,26 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
-
 I2C_HandleTypeDef hi2c3;
-
 UART_HandleTypeDef hlpuart1;
-
 RNG_HandleTypeDef hrng;
+RTC_HandleTypeDef hrtc;
 
 /* USER CODE BEGIN PV */
 
 char rx_buf[32];
 volatile uint8_t status_flag = 0;
+
+typedef struct {
+    float    temperature_f;   // raw float from SHT40
+    float    humidity_f;      // raw float from SHT40
+    int16_t  temp_encoded;    // value sent in BLE frame (x100, fixed point)
+    uint16_t hum_encoded;     // value sent in BLE frame (x100, fixed point)
+    uint8_t  battery_percent;
+    uint8_t  sht40_ok;        // 1 = read succeeded, 0 = failed
+} DebugSnapshot_t;
+
+volatile DebugSnapshot_t g_dbg = {0};
 
 /* USER CODE END PV */
 
@@ -50,9 +60,9 @@ static void MX_LPUART1_UART_Init(void);
 static void MX_I2C3_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_RNG_Init(void);
+static void MX_RTC_Init(void);
 /* USER CODE BEGIN PFP */
-static uint8_t  adc_read_vbat_percent(void);
-static uint8_t  check_at_response(void);
+static uint8_t adc_read_vbat_percent(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -73,68 +83,78 @@ int main(void)
 
   /* MCU Configuration--------------------------------------------------------*/
 
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
   /* USER CODE BEGIN Init */
 
   /* USER CODE END Init */
 
+  /* Configure the system clock */
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
 
   /* USER CODE END SysInit */
 
+  /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_LPUART1_UART_Init();
   MX_I2C3_Init();
   MX_ADC1_Init();
   MX_RNG_Init();
+  MX_RTC_Init();
+
   /* USER CODE BEGIN 2 */
 
     E104_Wake();
-
     E104_Init(&hlpuart1);
 
+    uint32_t rand_val = 0;
+    if (HAL_RNG_GenerateRandomNumber(&hrng, &rand_val) != HAL_OK) {
+        rand_val = 0xDEAD;
+    }
+
     uint8_t batt = adc_read_vbat_percent();
-    int16_t temp_raw = 2337;  // TODO: Podstaw odczyt z SHT40
-    uint16_t hum_raw = 5527;  // TODO: Podstaw odczyt z SHT40
-    uint32_t press_raw = 10120; // TODO: Podstaw odczyt z LPS22HB
-    // uint16_t magic = temp_raw + hum_raw + press_raw + 0x55aa55aa; // Magic number
+
+    SHT40_t sht40 = {0};
+    int16_t  temp_raw = 2337;
+    uint16_t hum_raw  = 5527;
+
+    // if (SHT40_Init(&sht40, &hi2c3) == HAL_OK) {
+    //     HAL_Delay(2);  // give sensor time after soft reset
+    //     if (SHT40_Read_Data(&sht40) == HAL_OK) {
+    //         temp_raw = (int16_t)(sht40.temperature * 100.0f);
+    //         hum_raw  = (uint16_t)(sht40.humidity   * 100.0f);
+    //     }
+    // }
 
     BleAdvFrame_t my_frame;
     my_frame.manufacturer_id = 0xFFFF;
     my_frame.temperature     = temp_raw;
     my_frame.humidity        = hum_raw;
-    my_frame.pressure        = press_raw;
+    my_frame.pressure        = 10120;  // TODO: LPS22HB
     my_frame.battery_percent = batt;
-    my_frame.device_id       = 0;
-    
-    uint16_t sum = 0;
-    uint8_t *temp;
-    temp = (uint8_t *)&my_frame.temperature;
-    for (size_t i = 0; i < 8; i++){
-      sum += temp[i];
-    }
+    my_frame.device_id       = (uint16_t)(rand_val & 0xFFFF);
 
+    uint16_t sum = 0;
+    uint8_t *p = (uint8_t *)&my_frame.temperature;
+    for (size_t i = 0; i < 8; i++) {
+        sum += p[i];
+    }
     my_frame.magic_number = sum + 0x55aa55aa;
 
-    uint8_t status_adv = E104_SetAdvertising(&my_frame);
+    (void)E104_SetAdvertising(&my_frame);
 
-    // Test code for e104 lib
-    // if (status_adv == 1) {
-    //     __NOP(); -- breakpoint if works
-    // } else {
-    //     __NOP(); -- breakpoint if it dies
-    // }
-
-    uint32_t sleep_ms = 5000 + 151;
-    HAL_Delay(sleep_ms);
+    HAL_Delay(5000 + 151);
 
     E104_Sleep();
 
-    HAL_Delay(5000);
+    HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 9999, RTC_WAKEUPCLOCK_RTCCLK_DIV16, 0);
+    HAL_SuspendTick();
+    HAL_PWREx_EnterSTOP2Mode(PWR_STOPENTRY_WFI);
 
+    HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
     NVIC_SystemReset();
 
   /* USER CODE END 2 */
@@ -166,12 +186,14 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_MSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI
+                              |RCC_OSCILLATORTYPE_MSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.MSIState = RCC_MSI_ON;
   RCC_OscInitStruct.MSICalibrationValue = RCC_MSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_6;
+  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_8;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -226,8 +248,8 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
-  hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_1CYCLE_5;
-  hadc1.Init.SamplingTimeCommon2 = ADC_SAMPLETIME_1CYCLE_5;
+  hadc1.Init.SamplingTimeCommon1 = ADC_SAMPLETIME_79CYCLES_5;
+  hadc1.Init.SamplingTimeCommon2 = ADC_SAMPLETIME_79CYCLES_5;
   hadc1.Init.OversamplingMode = DISABLE;
   hadc1.Init.TriggerFrequencyMode = ADC_TRIGGER_FREQ_HIGH;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
@@ -373,6 +395,76 @@ static void MX_RNG_Init(void)
 }
 
 /**
+  * @brief RTC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RTC_Init(void)
+{
+
+  /* USER CODE BEGIN RTC_Init 0 */
+
+  /* USER CODE END RTC_Init 0 */
+
+  RTC_TimeTypeDef sTime = {0};
+  RTC_DateTypeDef sDate = {0};
+
+  /* USER CODE BEGIN RTC_Init 1 */
+
+  /* USER CODE END RTC_Init 1 */
+
+  /** Initialize RTC Only
+  */
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  hrtc.Init.OutPutPullUp = RTC_OUTPUT_PULLUP_NONE;
+  hrtc.Init.BinMode = RTC_BINARY_NONE;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* USER CODE BEGIN Check_RTC_BKUP */
+
+  /* USER CODE END Check_RTC_BKUP */
+
+  /** Initialize RTC and set the Time and Date
+  */
+  sTime.Hours = 0x0;
+  sTime.Minutes = 0x0;
+  sTime.Seconds = 0x0;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sDate.WeekDay = RTC_WEEKDAY_MONDAY;
+  sDate.Month = RTC_MONTH_JANUARY;
+  sDate.Date = 0x1;
+  sDate.Year = 0x0;
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  // NOTE: Do NOT call HAL_RTCEx_SetWakeUpTimer here.
+  // The wakeup timer is armed manually in main() just before STOP 2 entry,
+  // using HAL_RTCEx_SetWakeUpTimer_IT with the correct counter and interrupt.
+
+  /* USER CODE BEGIN RTC_Init 2 */
+
+  /* USER CODE END RTC_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -415,41 +507,54 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
-uint8_t check_at_response(void) {
-    memset(rx_buf, 0, sizeof(rx_buf));
-    
-    HAL_UART_Receive(&hlpuart1, (uint8_t *)rx_buf, sizeof(rx_buf)-1, 500);
-    
-    if (strstr(rx_buf, "+OK") != NULL || strstr(rx_buf, "+ok") != NULL) {
-        return 1; // Sukces
-    } else {
-        return 0; // Błąd
-    }
-}
-
 static uint8_t adc_read_vbat_percent(void)
 {
     ADC_ChannelConfTypeDef sConfig = {0};
+
+    // --- Step 1: measure Vdda via VREFINT ---
+    ADC1_COMMON->CCR |= ADC_CCR_VREFEN;
+
     sConfig.Channel      = ADC_CHANNEL_VREFINT;
     sConfig.Rank         = ADC_REGULAR_RANK_1;
-    sConfig.SamplingTime = ADC_SAMPLINGTIME_COMMON_1; 
+    sConfig.SamplingTime = ADC_SAMPLINGTIME_COMMON_1;
     HAL_ADC_ConfigChannel(&hadc1, &sConfig);
 
+    HAL_ADCEx_Calibration_Start(&hadc1);
     HAL_ADC_Start(&hadc1);
     HAL_ADC_PollForConversion(&hadc1, 10);
     uint32_t raw_vref = HAL_ADC_GetValue(&hadc1);
     HAL_ADC_Stop(&hadc1);
 
+    ADC1_COMMON->CCR &= ~ADC_CCR_VREFEN;
+
     if (raw_vref == 0) return 0;
 
-    uint32_t vbat_mv = (1210UL * 4095UL) / raw_vref;
+    // Factory VREFINT calibration: measured at 3.0V, 12-bit
+    // Verify address 0x1FFF75AA in STM32U031 datasheet memory map
+    uint16_t vrefint_cal = *((volatile uint16_t *)0x1FFF75AAU);
+    uint32_t vdda_mv = (3000UL * vrefint_cal) / raw_vref;
+
+    // --- Step 2: measure VBAT ---
+    ADC1_COMMON->CCR |= ADC_CCR_VBATEN;
+
+    sConfig.Channel      = ADC_CHANNEL_VBAT;
+    sConfig.SamplingTime = ADC_SAMPLINGTIME_COMMON_1;
+    HAL_ADC_ConfigChannel(&hadc1, &sConfig);
+
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, 10);
+    uint32_t raw_vbat = HAL_ADC_GetValue(&hadc1);
+    HAL_ADC_Stop(&hadc1);
+
+    ADC1_COMMON->CCR &= ~ADC_CCR_VBATEN;
+
+    // STM32U031: VBAT has internal /3 divider — verify in RM0503 ADC chapter
+    uint32_t vbat_mv = (raw_vbat * vdda_mv * 3UL) / 4095UL;
 
     const uint32_t V_MAX = 3000;
     const uint32_t V_MIN = 2000;
-
     if (vbat_mv >= V_MAX) return 100;
     if (vbat_mv <= V_MIN) return 0;
-    
     return (uint8_t)((vbat_mv - V_MIN) * 100UL / (V_MAX - V_MIN));
 }
 
@@ -462,13 +567,13 @@ static uint8_t adc_read_vbat_percent(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
   while (1)
   {
   }
   /* USER CODE END Error_Handler_Debug */
 }
+
 #ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
@@ -480,8 +585,6 @@ void Error_Handler(void)
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
