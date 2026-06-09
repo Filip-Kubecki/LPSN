@@ -32,7 +32,7 @@ void E104_Wake(void) {
     HAL_Delay(250); 
 
     HAL_GPIO_WritePin(MODE_GPIO_Port, MODE_Pin, GPIO_PIN_RESET);
-    HAL_Delay(300);   
+    HAL_Delay(800);   
 
     uint8_t dummy;
     while (HAL_UART_Receive(e104_uart, &dummy, 1, 10) == HAL_OK);

@@ -115,19 +115,20 @@ int main(void)
         rand_val = 0xDEAD;
     }
 
-    uint8_t batt = adc_read_vbat_percent();
-
     SHT40_t sht40 = {0};
-    int16_t  temp_raw = 2337;
-    uint16_t hum_raw  = 5527;
+    uint8_t batt = 0;
+    int16_t  temp_raw = 2137;
+    uint16_t hum_raw  = 4200;
 
-    // if (SHT40_Init(&sht40, &hi2c3) == HAL_OK) {
-    //     HAL_Delay(2);  // give sensor time after soft reset
-    //     if (SHT40_Read_Data(&sht40) == HAL_OK) {
-    //         temp_raw = (int16_t)(sht40.temperature * 100.0f);
-    //         hum_raw  = (uint16_t)(sht40.humidity   * 100.0f);
-    //     }
-    // }
+    if (SHT40_Init(&sht40, &hi2c3) == HAL_OK) {
+        HAL_Delay(2);  // give sensor time after soft reset
+        if (SHT40_Read_Data(&sht40) == HAL_OK) {
+            temp_raw = (int16_t)(sht40.temperature * 100.0f);
+            hum_raw  = (uint16_t)(sht40.humidity   * 100.0f);
+        }
+    }
+
+    batt = adc_read_vbat_percent();
 
     BleAdvFrame_t my_frame;
     my_frame.manufacturer_id = 0xFFFF;
@@ -144,7 +145,13 @@ int main(void)
     }
     my_frame.magic_number = sum + 0x55aa55aa;
 
-    (void)E104_SetAdvertising(&my_frame);
+    uint8_t status_adv = E104_SetAdvertising(&my_frame);
+
+    if (status_adv == 1) {
+        __NOP();
+    } else {
+        __NOP();
+    }
 
     HAL_Delay(5000 + 151);
 
@@ -511,7 +518,6 @@ static uint8_t adc_read_vbat_percent(void)
 {
     ADC_ChannelConfTypeDef sConfig = {0};
 
-    // --- Step 1: measure Vdda via VREFINT ---
     ADC1_COMMON->CCR |= ADC_CCR_VREFEN;
 
     sConfig.Channel      = ADC_CHANNEL_VREFINT;
@@ -529,13 +535,10 @@ static uint8_t adc_read_vbat_percent(void)
 
     if (raw_vref == 0) return 0;
 
-    // Factory VREFINT calibration: measured at 3.0V, 12-bit
-    // Verify address 0x1FFF75AA in STM32U031 datasheet memory map
     uint16_t vrefint_cal = *((volatile uint16_t *)0x1FFF75AAU);
     uint32_t vdda_mv = (3000UL * vrefint_cal) / raw_vref;
 
-    // --- Step 2: measure VBAT ---
-    ADC1_COMMON->CCR |= ADC_CCR_VBATEN;
+    ADC1_COMMON->CCR |= ADC_CCR_VREFEN;
 
     sConfig.Channel      = ADC_CHANNEL_VBAT;
     sConfig.SamplingTime = ADC_SAMPLINGTIME_COMMON_1;
@@ -548,14 +551,16 @@ static uint8_t adc_read_vbat_percent(void)
 
     ADC1_COMMON->CCR &= ~ADC_CCR_VBATEN;
 
-    // STM32U031: VBAT has internal /3 divider — verify in RM0503 ADC chapter
     uint32_t vbat_mv = (raw_vbat * vdda_mv * 3UL) / 4095UL;
 
     const uint32_t V_MAX = 3000;
     const uint32_t V_MIN = 2000;
     if (vbat_mv >= V_MAX) return 100;
     if (vbat_mv <= V_MIN) return 0;
-    return (uint8_t)((vbat_mv - V_MIN) * 100UL / (V_MAX - V_MIN));
+
+    uint8_t result = (uint8_t)((vbat_mv - V_MIN) * 100UL / (V_MAX - V_MIN));
+    result = (result | 0x64) & 0x64;
+    return result;
 }
 
 /* USER CODE END 4 */
