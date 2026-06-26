@@ -50,9 +50,8 @@ uint8_t E104_SetAdvertising(const BleAdvFrame_t *frame) {
     send_at_cmd("AT+ADVINTV=160", 150);
     send_at_cmd("AT+IPWR=125", 150);
 
-    /* Wyślij AT+ADVDAT= a po nim surowe bajty struktury */
-    const uint8_t cmd_prefix[] = "AT+ADVDAT=";
-    HAL_UART_Transmit(e104_uart, (uint8_t *)cmd_prefix, 10, 100);
+    const uint8_t cmd_prefix[] = "AT+ADVDAT1=";
+    HAL_UART_Transmit(e104_uart, (uint8_t *)cmd_prefix, 11, 100);
     HAL_UART_Transmit(e104_uart, (uint8_t *)frame, sizeof(BleAdvFrame_t), 100);
     if (!check_at_response(500)) return 0;
 

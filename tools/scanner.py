@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import asyncio
 import struct
 from bleak import BleakScanner
@@ -9,22 +8,20 @@ from datetime import datetime
 
 TARGET_NAME = "E104-BT5005A"
 MANUFACTURER_ID = 0xFFFF
+seen_ids = set()
 
 
 def parse_frame(data: bytes) -> dict | None:
     if len(data) < 16:
         return None
-
     try:
         manufacturer_id, temperature, humidity, pressure, magic, battery, device_id = (
             struct.unpack_from("<HhHIIBB", data, 0)
         )
     except struct.error:
         return None
-
     if manufacturer_id != MANUFACTURER_ID:
         return None
-
     return {
         "temperature_c": temperature / 100.0,
         "humidity_pct": humidity / 100.0,
@@ -38,20 +35,19 @@ def parse_frame(data: bytes) -> dict | None:
 def callback(device: BLEDevice, adv: AdvertisementData) -> None:
     if device.name != TARGET_NAME:
         return
-
     mfr_data = adv.manufacturer_data.get(MANUFACTURER_ID)
     if mfr_data is None:
         return
-
     raw = struct.pack("<H", MANUFACTURER_ID) + mfr_data
     parsed = parse_frame(raw)
-
     if parsed is None:
         print(
             f"[{datetime.now().strftime('%H:%M:%S')}] {device.address} — failed to parse frame"
         )
         return
-
+    if parsed["device_id"] in seen_ids:
+        return
+    seen_ids.add(parsed["device_id"])
     print(
         f"[{datetime.now().strftime('%H:%M:%S')}] "
         f"RSSI: {adv.rssi:4d} dBm | "
@@ -65,10 +61,8 @@ def callback(device: BLEDevice, adv: AdvertisementData) -> None:
 
 async def main() -> None:
     print(f"Scanning for '{TARGET_NAME}'... (Ctrl+C to stop)\n")
-
     scanner = BleakScanner(callback)
     await scanner.start()
-
     try:
         while True:
             await asyncio.sleep(1)
@@ -81,3 +75,4 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
+
